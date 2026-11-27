@@ -1,4 +1,4 @@
-package com.pocketnode.server
+package com.pocketnode.server.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

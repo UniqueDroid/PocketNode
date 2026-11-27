@@ -5,6 +5,11 @@ import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
 import com.pocketnode.server.engine.DirectoryModelCatalog
+import com.pocketnode.server.engine.litert.LiteRtLmBackend
+import com.pocketnode.server.service.ServerController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import com.pocketnode.server.hardware.DeviceInfo
 import com.pocketnode.server.models.ModelImporter
 import com.pocketnode.server.settings.SettingsStore
@@ -28,6 +33,18 @@ class AppContainer(context: Context) {
     val importer = ModelImporter(modelsDir)
     val deviceInfo = DeviceInfo(appContext)
     val eventLog = EventLog()
+
+    /** Lebt so lange wie der Prozess. Service und Oberfläche steuern den Server darüber. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val controller = ServerController(
+        settingsStore = settingsStore,
+        catalog = catalog,
+        backendFactory = { LiteRtLmBackend(cacheDir = engineCacheDir.path, log = eventLog) },
+        cpuThreads = { deviceInfo.recommendedThreads() },
+        log = eventLog,
+        scope = scope,
+    )
 }
 
 class PocketNodeApp : Application() {

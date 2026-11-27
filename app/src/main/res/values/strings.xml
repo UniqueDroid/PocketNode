@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PocketNode</string>
+    <string name="notification_channel">PocketNode server</string>
+    <string name="notification_title">PocketNode AI server</string>
+    <string name="notification_stopped">Stopped</string>
+    <string name="notification_starting">Starting …</string>
+    <string name="notification_running">Running on %1$s · %2$s · %3$s</string>
+    <string name="notification_no_model">no model loaded</string>
+    <string name="notification_loading">loading %1$s</string>
+    <string name="notification_failed">Error: %1$s</string>
+    <string name="action_stop">Stop</string>
+</resources>

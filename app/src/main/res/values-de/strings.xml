@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notification_channel">PocketNode-Server</string>
+    <string name="notification_title">PocketNode KI-Server</string>
+    <string name="notification_stopped">Gestoppt</string>
+    <string name="notification_starting">Startet …</string>
+    <string name="notification_running">Läuft auf %1$s · %2$s · %3$s</string>
+    <string name="notification_no_model">kein Modell geladen</string>
+    <string name="notification_loading">lädt %1$s</string>
+    <string name="notification_failed">Fehler: %1$s</string>
+    <string name="action_stop">Stoppen</string>
+</resources>
