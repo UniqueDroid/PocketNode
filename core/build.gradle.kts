@@ -3,6 +3,11 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
+    application
+}
+
+application {
+    mainClass = "com.pocketnode.server.DevMainKt"
 }
 
 java {
