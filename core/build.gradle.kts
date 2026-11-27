@@ -6,8 +6,14 @@ plugins {
     application
 }
 
+val runtimeOnlyForRun: Configuration by configurations.creating
+
 application {
     mainClass = "com.pocketnode.server.DevMainKt"
+}
+
+tasks.named<JavaExec>("run") {
+    classpath += runtimeOnlyForRun
 }
 
 java {
@@ -28,6 +34,8 @@ dependencies {
     implementation(libs.ktor.server.cors)
     // Nur zum Kompilieren: Die App bringt litertlm-android mit (gleiche öffentliche API), der Desktop-Lauf litertlm-jvm.
     compileOnly(libs.litertlm.jvm)
+    // Für den Desktop-Lauf (:core:run), nicht für die App.
+    "runtimeOnlyForRun"(libs.litertlm.jvm)
 
     testImplementation(kotlin("test"))
     testImplementation(platform(libs.junit.bom))

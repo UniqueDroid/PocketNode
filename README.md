@@ -30,13 +30,13 @@ Design and plan (German):
 
 ## Try it on a desktop
 
-Requires JDK 17 or newer.
+Requires JDK 17 or newer for the fake backend, JDK 25 for a real model.
 
 ```bash
 POCKETNODE_API_KEY=dev ./gradlew :core:run
 ```
 
-`POCKETNODE_PORT` changes the port (default 8080). Without `POCKETNODE_API_KEY` a random key is generated and printed.
+`POCKETNODE_PORT` changes the port (default 8080). Without `POCKETNODE_API_KEY` a random key is generated and printed. Without `POCKETNODE_MODELS_DIR` the server uses the fake backend.
 
 ```bash
 curl -s localhost:8080/health
@@ -50,6 +50,27 @@ curl -sN localhost:8080/v1/chat/completions \
 ```
 
 The fake backend always answers `Hallo von PocketNode.` It exists to verify clients such as Open WebUI against the API before a real model is involved.
+
+## Run a real model on a desktop
+
+The desktop run can also use the real LiteRT-LM engine on the CPU. LiteRT-LM 0.20.0 is compiled for Java 25, so this needs **JDK 25**.
+
+```bash
+mkdir -p ~/pocketnode-models
+# Any .litertlm model, e.g. from https://huggingface.co/litert-community
+curl -L -o ~/pocketnode-models/granite-350m.litertlm \
+  https://huggingface.co/litert-community/granite-4.0-350m-litert-lm/resolve/main/granite-4.0-350m_q8_ekv1280.litertlm
+
+POCKETNODE_MODELS_DIR=~/pocketnode-models POCKETNODE_API_KEY=dev ./gradlew :core:run
+```
+
+Every non-empty `.litertlm` file in the folder is a model; its id is the file name without the extension. Files added or removed while the server runs show up on the next request. The desktop run binds to `127.0.0.1` unless `POCKETNODE_HOST` is set.
+
+Tests against a real model run when `POCKETNODE_TEST_MODEL` points at a `.litertlm` file:
+
+```bash
+POCKETNODE_TEST_MODEL=~/pocketnode-models/granite-350m.litertlm ./gradlew :core:test
+```
 
 ## API
 
