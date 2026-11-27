@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -45,7 +46,8 @@ class PocketNodeService : LifecycleService() {
             this,
             NOTIFICATION_ID,
             buildNotification(getString(R.string.notification_starting)),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+            // Den Typ specialUse gibt es erst ab Android 14.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0,
         )
         acquireLocks()
         if (statusJob == null) {
@@ -79,7 +81,8 @@ class PocketNodeService : LifecycleService() {
         if (wakeLock == null) {
             wakeLock = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PocketNode:Wake")
-                .apply { setReferenceCounted(false); acquire() }
+                // Ohne Zeitlimit: Der Server soll laufen, bis der Nutzer ihn stoppt. Freigabe in onDestroy.
+                .apply { setReferenceCounted(false); @Suppress("WakelockTimeout") acquire() }
         }
         if (wifiLock == null) {
             @Suppress("DEPRECATION")

@@ -56,7 +56,6 @@ dependencies {
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.service)
-    implementation(libs.navigation.compose)
     implementation(libs.zxing.core)
 
     testImplementation(kotlin("test-junit5"))
