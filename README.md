@@ -83,7 +83,7 @@ A failure after a stream has started is sent as an event `data: {"error": …}`;
 ## Build and test
 
 ```bash
-./gradlew :core:test            # 104 tests, no Android SDK needed
+./gradlew :core:test            # 107 tests, no Android SDK needed
 ./gradlew :app:assembleDebug    # needs the Android SDK (API 37)
 ```
 
