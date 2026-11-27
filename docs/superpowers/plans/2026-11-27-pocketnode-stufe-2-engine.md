@@ -116,7 +116,7 @@ val log: ServerLog = ServerLog.Stderr
 |---|---|
 | Auth | Alle Routen unter `/v1` liegen in einem Block mit einem routenweiten Plugin, das bei fehlendem Key `ApiError(401, …)` **wirft**. `requireAuth` je Route entfällt. |
 | Modellname | `EngineManager.generate` sendet `Started(model)` als erstes Event. `Module.kt` und `Sse.kt` nehmen den Modellnamen daraus. Der Parameter `model: () -> String` von `respondChatStream` entfällt. `withLimits` reicht `Started` unverändert durch und zählt es nicht. |
-| Usage bei Kürzung | Kürzt `withLimits`, behält es die zuletzt bekannte Prompt-Token-Zahl nicht (unbekannt), setzt aber `Usage(promptTokens = 0, completionTokens = gezählte Tokens)` nur, wenn das Backend vorher kein Usage liefern konnte. Backends dürfen `Done.usage` selbst korrekt liefern; `LiteRtLmBackend` tut das in Task 2. Für `FakeBackend`: bei Kürzung `Usage(promptTokens, gezählte Tokens)` über einen neuen optionalen Parameter `promptTokens: Int?` von `withLimits`. |
+| Usage bei Kürzung | Bleibt wie in Stufe 1: Kürzt `withLimits` wegen einer Stop-Sequenz, fehlt `usage`. Für `max_tokens` setzt `LiteRtLmBackend` das Limit in der Engine selbst durch und liefert `usage` (Task 2). Die Einschränkung kommt in die README. |
 | Ladefehler | `model_load_failed` antwortet mit der festen Meldung „Das Modell '<id>' konnte nicht geladen werden“. Die Ursache geht an `ServerLog`. |
 | Abbruch beim Laden | Wird `backend.load` abgebrochen, ruft `EngineManager` `backend.unload()` auf (in `NonCancellable`). |
 | `n` | `n < 1` → 400 `unsupported_parameter`. |
@@ -136,7 +136,6 @@ val log: ServerLog = ServerLog.Stderr
 @Test fun `lastTokensPerSecond is set after a generation`() // tokenDelayMs=10, 4 Tokens → Wert zwischen 50 und 200
 // GenerationLimitsTest
 @Test fun `Started passes through and is not counted`()
-@Test fun `cut output reports counted completion tokens`()  // promptTokens=7, maxTokens=2 → Usage(7, 2)
 // RequestMapperTest
 @Test fun `n below one is rejected`()
 @Test fun `developer role maps to SYSTEM`()
@@ -146,8 +145,6 @@ val log: ServerLog = ServerLog.Stderr
 @Test fun `every v1 route rejects a missing key`()          // geht alle registrierten Routen unter /v1 durch, erwartet 401
 @Test fun `model load failure hides the cause and logs it`()// Meldung enthält weder "absichtlich" noch einen Pfad; Log hat 1 ERROR
 @Test fun `response model name comes from the Started event`()
-// SseTest
-@Test fun `cut stream with include_usage still sends usage`()
 ```
 
 `every v1 route rejects a missing key` liest die Routen aus dem Routing-Baum der Anwendung, damit eine neue Route ohne Auth den Test bricht.
@@ -225,7 +222,7 @@ Regeln:
 - **Sampler:** Sind `temperature`, `topP` und `topK` alle `null`, ist `sampler = null`. Sonst werden fehlende Werte ergänzt: `topK = 40`, `topP = 0.95`, `temperature = 1.0`, `seed = 0`.
 - **Laden:** Erst der gewünschte Beschleuniger. Wirft `open` bei `GPU`, wird der Fehler als WARN geloggt und `CPU` versucht. Wirft auch das, fliegt die zweite Ausnahme. `NPU` wird wie `GPU` behandelt (nicht in `supported`, also zuerst GPU).
 - **Entladen:** schließt die Session. Ein vorher geladenes Modell wird vor dem neuen Laden geschlossen.
-- **Generieren:** Pro Anfrage eine neue Conversation, am Ende geschlossen. `Done.usage` kommt aus `onDone`, wenn beide Werte da sind, sonst `null`. `finish_reason` ist `STOP`; `LENGTH` setzt `withLimits` bzw. das Backend, wenn `completionTokens == maxOutputTokens`.
+- **Generieren:** Pro Anfrage eine neue Conversation, am Ende geschlossen. `maxOutputTokens` geht als `maxOutputToken` an die Engine. `Done.usage` kommt aus `onDone`, wenn beide Werte da sind, sonst `null`. `Done.reason` ist `LENGTH`, wenn `completionTokens >= maxOutputTokens`, sonst `STOP`. `withLimits` im `EngineManager` bleibt als Sicherheitsnetz dahinter.
 - **Kontext zu lang:** Meldet die Engine das, wird `ContextLengthExceeded(contextTokens)` geworfen. Welche Ausnahme die Engine dafür wirft, wird in Step 5 am echten Modell festgestellt und im Code vermerkt.
 - **Threads:** Alle Aufrufe von `runtime` und der Flow laufen auf `dispatcher`.
 
