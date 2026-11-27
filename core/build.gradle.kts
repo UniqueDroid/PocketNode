@@ -26,6 +26,8 @@ dependencies {
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.status.pages)
     implementation(libs.ktor.server.cors)
+    // Nur zum Kompilieren: Die App bringt litertlm-android mit (gleiche öffentliche API), der Desktop-Lauf litertlm-jvm.
+    compileOnly(libs.litertlm.jvm)
 
     testImplementation(kotlin("test"))
     testImplementation(platform(libs.junit.bom))
@@ -33,8 +35,12 @@ dependencies {
     testRuntimeOnly(libs.junit.launcher)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.ktor.server.test.host)
+    testImplementation(libs.litertlm.jvm)
 }
 
 tasks.test {
     useJUnitPlatform()
+    // Tests mit echtem Modell laufen nur, wenn die Variable gesetzt ist.
+    System.getenv("POCKETNODE_TEST_MODEL")?.let { environment("POCKETNODE_TEST_MODEL", it) }
+    maxHeapSize = "2g"
 }
