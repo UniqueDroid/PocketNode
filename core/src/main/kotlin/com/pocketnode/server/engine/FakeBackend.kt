@@ -11,7 +11,7 @@ class FakeBackend(
     val tokens: List<String> = listOf("Hallo", " von", " PocketNode", "."),
     val tokenDelayMs: Long = 0,
     val failLoadFor: Set<String> = emptySet(),
-    val failAfterTokens: Int? = null,
+    @Volatile var failAfterTokens: Int? = null,
     override val supported: Set<Accelerator> = setOf(Accelerator.CPU, Accelerator.GPU),
 ) : InferenceBackend {
     override val name: String = "Fake"
