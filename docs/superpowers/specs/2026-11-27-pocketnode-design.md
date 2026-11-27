@@ -115,7 +115,7 @@ Clients (Open WebUI, Home Assistant, Continue, Skripte)
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-Ein Gradle-Modul `app` mit diesen Paketen **[Vorschlag]**. `api` und die Regeln in `engine` und `hardware` (Warteschlange, RAM-Prüfung, Thermik-Stufen) hängen nicht an Android-Klassen, damit sie als normale JVM-Tests laufen.
+Zwei Gradle-Module **[Vorschlag]**: `:core` ist reines Kotlin ohne Android-Klassen und enthält `api`, die Engine-Verträge samt `EngineManager` und die Regeln aus `hardware` (RAM-Prüfung, Thermik-Stufen). `:app` enthält alles, was Android braucht. So laufen die Tests von `:core` ohne Android SDK, lokal wie in der CI.
 
 Der Zustand liegt in einem App-weiten Container statt in einer statischen Variable im Service wie in der Vorlage. Service und UI lesen denselben `StateFlow` mit dem Serverstatus.
 
