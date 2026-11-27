@@ -117,6 +117,8 @@ Clients (Open WebUI, Home Assistant, Continue, Skripte)
 
 Zwei Gradle-Module **[Vorschlag]**: `:core` ist reines Kotlin ohne Android-Klassen und enthält `api`, die Engine-Verträge samt `EngineManager` und die Regeln aus `hardware` (RAM-Prüfung, Thermik-Stufen). `:app` enthält alles, was Android braucht. So laufen die Tests von `:core` ohne Android SDK, lokal wie in der CI.
 
+Nachtrag Stufe 2: `LiteRtLmBackend` liegt ebenfalls in `:core`. Es wird gegen `litertlm-jvm` kompiliert, die App bringt `litertlm-android` mit; beide haben dieselbe öffentliche API (0.20.0 geprüft). So läuft das Backend auch auf dem Desktop und ist dort mit einem echten Modell testbar. LiteRT-LM 0.20.0 ist für Java 25 kompiliert, der Desktop-Lauf braucht deshalb JDK 25.
+
 Der Zustand liegt in einem App-weiten Container statt in einer statischen Variable im Service wie in der Vorlage. Service und UI lesen denselben `StateFlow` mit dem Serverstatus.
 
 ### Backend-Schnittstelle
@@ -135,6 +137,7 @@ interface InferenceBackend {
 }
 ```
 
+- Jede Generierung über den `EngineManager` beginnt mit `GenerationEvent.Started(model)`. Daraus kommt der Modellname der Antwort.
 - Es gibt nur noch den Streaming-Weg. Die nicht gestreamte Antwort sammelt denselben Flow ein. Damit entfällt der doppelte Code der Vorlage.
 - `load` gibt zurück, welcher Beschleuniger **tatsächlich** aktiv ist. Schlägt die GPU fehl, lädt das Backend auf der CPU und meldet das. UI, Benachrichtigung und `/health` zeigen den echten Wert.
 - `Accelerator.NPU` existiert von Anfang an, wird von `LiteRtLmBackend` auf dem G2 aber nicht angeboten.
