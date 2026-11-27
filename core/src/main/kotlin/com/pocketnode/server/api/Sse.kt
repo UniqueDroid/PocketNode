@@ -7,13 +7,14 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.log
 import io.ktor.server.response.header
 import io.ktor.server.response.respondBytesWriter
-import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeStringUtf8
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 
 /** Die Generierung ist gescheitert, nachdem der Stream schon begonnen hatte. */
@@ -24,8 +25,8 @@ private class GenerationFailed(cause: Throwable) : Exception(cause)
  *
  * Fehler vor dem ersten Event (Warteschlange voll, Modell fehlt) werden geworfen und ergeben
  * eine normale Fehlerantwort mit Statuscode. Fehler danach werden als `data: {"error":…}` in den
- * Stream geschrieben, der dann ohne `[DONE]` endet. Trennt der Client die Verbindung, wird die
- * Generierung abgebrochen.
+ * Stream geschrieben, der dann ohne `[DONE]` endet. Trennt der Client die Verbindung oder nimmt er
+ * ein Event länger als [writeTimeoutMs] nicht ab, wird die Generierung abgebrochen.
  *
  * [model] wird erst nach dem ersten Event gelesen, weil das Modell davor noch geladen werden kann.
  */
@@ -34,6 +35,7 @@ suspend fun ApplicationCall.respondChatStream(
     completionId: String,
     model: () -> String,
     includeUsage: Boolean,
+    writeTimeoutMs: Long = 30_000,
 ): Unit = coroutineScope {
     val channel = Channel<GenerationEvent>(Channel.RENDEZVOUS)
     val producer = launch {
@@ -66,6 +68,10 @@ suspend fun ApplicationCall.respondChatStream(
     response.header("X-Accel-Buffering", "no")
     try {
         respondBytesWriter(contentType = ContentType.Text.EventStream) {
+            suspend fun send(data: String) = withTimeout(writeTimeoutMs) {
+                writeStringUtf8("data: $data\n\n")
+                flush()
+            }
             try {
                 send(chunk(Delta(role = "assistant", content = "")))
                 var event = first.getOrNull()
@@ -103,6 +109,9 @@ suspend fun ApplicationCall.respondChatStream(
                     application.log.error("Generierung im laufenden Stream gescheitert", cause)
                 }
                 send(ApiJson.encodeToString(error.toBody()))
+            } catch (e: TimeoutCancellationException) {
+                // Der Client liest nicht mehr. Der Stream wird aufgegeben, damit die Engine frei wird.
+                application.log.warn("Stream aufgegeben: Client hat ${writeTimeoutMs} ms lang nichts abgenommen")
             } finally {
                 // Greift auch, wenn das Schreiben scheitert, weil der Client die Verbindung getrennt hat.
                 producer.cancel()
@@ -114,9 +123,4 @@ suspend fun ApplicationCall.respondChatStream(
         producer.cancel()
         throw e
     }
-}
-
-private suspend fun ByteWriteChannel.send(data: String) {
-    writeStringUtf8("data: $data\n\n")
-    flush()
 }

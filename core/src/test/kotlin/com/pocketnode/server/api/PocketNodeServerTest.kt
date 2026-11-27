@@ -9,6 +9,7 @@ import java.net.http.HttpResponse
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -68,7 +69,7 @@ class PocketNodeServerTest {
         val first = server()
         first.start()
         val second = server(port = first.boundPort)
-        runCatching { second.start() }
+        assertFailsWith<java.net.BindException> { second.start() }
         assertFalse(second.isRunning)
         assertEquals(200, health(first.boundPort).statusCode())
     }
@@ -98,6 +99,76 @@ class PocketNodeServerTest {
         while (fixture.backend.activeGenerations > 0 && System.currentTimeMillis() < deadline) Thread.sleep(20)
         assertEquals(0, fixture.backend.activeGenerations)
         assertFalse(fixture.engine.state.value.running)
+    }
+
+    private fun openChat(port: Int, body: String): Socket = Socket("127.0.0.1", port).also { socket ->
+        socket.getOutputStream().write(
+            (
+                "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n" +
+                    "Authorization: Bearer $TEST_KEY\r\nContent-Type: application/json\r\n" +
+                    "Content-Length: ${body.toByteArray().size}\r\n\r\n$body"
+                ).toByteArray(),
+        )
+        socket.getOutputStream().flush()
+    }
+
+    private fun waitUntil(timeoutMs: Long, condition: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) return true
+            Thread.sleep(20)
+        }
+        return condition()
+    }
+
+    @Test
+    fun `client disconnect while queued frees the slot`() {
+        val fixture = ApiFixture(FakeBackend(tokens = List(30) { "x" }, tokenDelayMs = 100))
+        val server = server(fixture)
+        server.start()
+        val body = """{"messages":[{"role":"user","content":"Hi"}]}"""
+        val running = openChat(server.boundPort, body)
+        assertTrue(waitUntil(2_000) { fixture.engine.state.value.running })
+        for (waitingBody in listOf(body, """{"stream":true,"messages":[{"role":"user","content":"Hi"}]}""")) {
+            val waiting = openChat(server.boundPort, waitingBody)
+            assertTrue(waitUntil(2_000) { fixture.engine.state.value.waiting == 1 })
+            waiting.close()
+            assertTrue(waitUntil(1_500) { fixture.engine.state.value.waiting == 0 }, "Wartender Platz wurde nicht frei")
+        }
+        assertTrue(fixture.engine.state.value.running)
+        running.close()
+    }
+
+    @Test
+    fun `client disconnect stops a non-streaming generation`() {
+        val fixture = ApiFixture(FakeBackend(tokens = List(50) { "x" }, tokenDelayMs = 100))
+        val server = server(fixture)
+        server.start()
+        val socket = openChat(server.boundPort, """{"messages":[{"role":"user","content":"Hi"}]}""")
+        assertTrue(waitUntil(2_000) { fixture.backend.activeGenerations == 1 })
+        socket.close()
+        // Die Generierung würde noch rund 5 s laufen.
+        assertTrue(waitUntil(1_500) { fixture.backend.activeGenerations == 0 }, "Generierung lief nach dem Trennen weiter")
+        assertFalse(fixture.engine.state.value.running)
+    }
+
+    @Test
+    fun `stream to a client that stops reading is abandoned after the write timeout`() {
+        val fixture = ApiFixture(
+            FakeBackend(tokens = List(4_000) { "x".repeat(8_192) }),
+            streamWriteTimeoutMs = 300,
+        )
+        val server = server(fixture)
+        server.start()
+        val socket = openChat(server.boundPort, """{"stream":true,"messages":[{"role":"user","content":"Hi"}]}""")
+        try {
+            assertTrue(waitUntil(2_000) { fixture.backend.activeGenerations == 1 })
+            // Der Client liest nie. Ohne Timeout bliebe die Engine belegt, bis die Verbindung endet.
+            assertTrue(waitUntil(5_000) { fixture.backend.activeGenerations == 0 }, "Engine blieb blockiert")
+            assertFalse(fixture.engine.state.value.running)
+        } finally {
+            socket.close()
+        }
     }
 
     @Test

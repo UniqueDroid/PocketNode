@@ -29,12 +29,13 @@ class ApiFixture(
     gate: AdmissionGate = AdmissionGate.Open,
     apiKey: String? = TEST_KEY,
     cors: Boolean = false,
+    streamWriteTimeoutMs: Long = 30_000,
 ) {
     val catalog = InMemoryModelCatalog(
         listOf(ModelFile("m1", "/models/m1.litertlm", 1), ModelFile("m2", "/models/m2.litertlm", 1)),
     )
     val engine = EngineManager(backend, catalog, config, gate)
-    val deps = ApiDeps(engine, catalog, apiKey = { apiKey }, corsEnabled = { cors })
+    val deps = ApiDeps(engine, catalog, apiKey = { apiKey }, corsEnabled = { cors }, streamWriteTimeoutMs = streamWriteTimeoutMs)
 
     fun run(block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
         application { pocketNodeModule(deps) }

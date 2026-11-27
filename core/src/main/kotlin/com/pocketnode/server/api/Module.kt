@@ -12,6 +12,7 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
 import io.ktor.server.application.log
+import io.ktor.server.http.HttpRequestLifecycle
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.contentLength
@@ -39,6 +40,8 @@ class ApiDeps(
     val corsEnabled: () -> Boolean = { false },
     val thermal: () -> String? = { null },
     val version: String = "0.1.0",
+    /** So lange darf ein einzelnes Stream-Event auf einen Client warten, der nicht liest. */
+    val streamWriteTimeoutMs: Long = 30_000,
 )
 
 /** Größte erlaubte Anfrage in Bytes. */
@@ -53,6 +56,11 @@ fun Application.pocketNodeModule(deps: ApiDeps) {
             allowNonSimpleContentTypes = true
             allowMethod(HttpMethod.Options)
         }
+    }
+    // Trennt der Client die Verbindung, wird der Aufruf abgebrochen: Wartende geben ihren Platz frei,
+    // eine laufende Generierung stoppt.
+    install(HttpRequestLifecycle) {
+        cancelCallOnClose = true
     }
     install(StatusPages) {
         exception<Throwable> { call, cause ->
@@ -113,6 +121,7 @@ fun Application.pocketNodeModule(deps: ApiDeps) {
                         completionId = completionId,
                         model = { deps.engine.state.value.loaded?.id ?: modelId ?: "unknown" },
                         includeUsage = request.streamOptions?.includeUsage == true,
+                        writeTimeoutMs = deps.streamWriteTimeoutMs,
                     )
                     return@post
                 }
