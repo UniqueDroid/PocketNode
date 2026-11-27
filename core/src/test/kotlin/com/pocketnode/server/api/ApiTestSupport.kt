@@ -17,7 +17,10 @@ import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
+
+data class LogEntry(val level: ServerLog.Level, val message: String, val error: Throwable?)
 
 const val TEST_KEY = "test-key"
 const val CHAT_BODY = """{"model":"m1","messages":[{"role":"user","content":"Hi"}]}"""
@@ -35,7 +38,16 @@ class ApiFixture(
         listOf(ModelFile("m1", "/models/m1.litertlm", 1), ModelFile("m2", "/models/m2.litertlm", 1)),
     )
     val engine = EngineManager(backend, catalog, config, gate)
-    val deps = ApiDeps(engine, catalog, apiKey = { apiKey }, corsEnabled = { cors }, streamWriteTimeoutMs = streamWriteTimeoutMs)
+    /** Alles, was der Server protokolliert hat. */
+    val logs = CopyOnWriteArrayList<LogEntry>()
+    val deps = ApiDeps(
+        engine,
+        catalog,
+        apiKey = { apiKey },
+        corsEnabled = { cors },
+        streamWriteTimeoutMs = streamWriteTimeoutMs,
+        log = { level, message, error -> logs += LogEntry(level, message, error) },
+    )
 
     fun run(block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
         application { pocketNodeModule(deps) }

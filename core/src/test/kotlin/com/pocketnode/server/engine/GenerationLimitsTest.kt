@@ -3,6 +3,7 @@ package com.pocketnode.server.engine
 import com.pocketnode.server.engine.GenerationEvent.Done
 import com.pocketnode.server.engine.GenerationEvent.Token
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -68,5 +69,16 @@ class GenerationLimitsTest {
         val events = source("aX", "b").withLimits(maxTokens = 1, stop = listOf("XYZ")).toList()
         assertEquals("aX", events.text())
         assertEquals(Done(FinishReason.LENGTH, null), events.last())
+    }
+
+    @Test
+    fun `Started passes through and is not counted`() = runTest {
+        val started = GenerationEvent.Started(LoadedModel("m1", Accelerator.CPU, 4096))
+        val upstream = flow {
+            emit(started)
+            emitAll(source("a", "b", "c"))
+        }
+        val events = upstream.withLimits(maxTokens = 2, stop = listOf("zzz")).toList()
+        assertEquals(listOf(started, Token("a"), Token("b"), Done(FinishReason.LENGTH, null)), events)
     }
 }

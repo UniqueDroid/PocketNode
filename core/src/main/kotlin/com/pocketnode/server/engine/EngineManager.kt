@@ -1,11 +1,12 @@
 package com.pocketnode.server.engine
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
@@ -37,6 +38,8 @@ data class EngineState(
     val running: Boolean = false,
     val waiting: Int = 0,
     val lastError: String? = null,
+    /** Tokens pro Sekunde der letzten abgeschlossenen Generierung, gemessen ab dem ersten Token. */
+    val lastTokensPerSecond: Double? = null,
 )
 
 /**
@@ -48,6 +51,7 @@ class EngineManager(
     private val catalog: ModelCatalog,
     private val config: EngineConfig = EngineConfig(),
     private val gate: AdmissionGate = AdmissionGate.Open,
+    private val nanoTime: () -> Long = System::nanoTime,
 ) {
     private val mutableState = MutableStateFlow(EngineState())
     val state: StateFlow<EngineState> = mutableState.asStateFlow()
@@ -77,8 +81,18 @@ class EngineManager(
             }
             try {
                 mutableState.update { it.copy(running = true) }
-                ensureLoaded(modelId)
-                emitAll(backend.generate(request).withLimits(request.maxTokens, request.stop))
+                val model = ensureLoaded(modelId)
+                emit(GenerationEvent.Started(model))
+                var tokens = 0
+                var firstTokenAt = 0L
+                backend.generate(request).withLimits(request.maxTokens, request.stop).collect { event ->
+                    when (event) {
+                        is GenerationEvent.Token -> if (++tokens == 1) firstTokenAt = nanoTime()
+                        is GenerationEvent.Done -> recordSpeed(tokens, nanoTime() - firstTokenAt)
+                        is GenerationEvent.Started -> return@collect
+                    }
+                    emit(event)
+                }
             } finally {
                 mutableState.update { it.copy(running = false) }
                 engineLock.unlock()
@@ -88,7 +102,7 @@ class EngineManager(
         }
     }
 
-    suspend fun load(modelId: String) = engineLock.withLock {
+    suspend fun load(modelId: String): LoadedModel = engineLock.withLock {
         val file = catalog.find(modelId) ?: throw EngineException.ModelNotFound(modelId)
         loadLocked(file)
     }
@@ -98,32 +112,43 @@ class EngineManager(
         mutableState.update { it.copy(loaded = null) }
     }
 
-    private suspend fun ensureLoaded(modelId: String?) {
+    private fun recordSpeed(tokens: Int, nanosSinceFirstToken: Long) {
+        if (tokens < 2 || nanosSinceFirstToken <= 0) return
+        val perSecond = (tokens - 1) * 1_000_000_000.0 / nanosSinceFirstToken
+        mutableState.update { it.copy(lastTokensPerSecond = perSecond) }
+    }
+
+    private suspend fun ensureLoaded(modelId: String?): LoadedModel {
         val loaded = mutableState.value.loaded
         val target = modelId
             ?: loaded?.id
             ?: catalog.list().firstOrNull()?.id
             ?: throw EngineException.NoModelAvailable()
-        if (loaded?.id == target) return
+        if (loaded != null && loaded.id == target) return loaded
         val file = catalog.find(target) ?: throw EngineException.ModelNotFound(target)
         if (loaded != null && !config.autoSwitch) throw EngineException.ModelNotLoaded(target)
-        loadLocked(file)
+        return loadLocked(file)
     }
 
     /** Nur mit gehaltenem [engineLock] aufrufen. */
-    private suspend fun loadLocked(file: ModelFile) {
+    private suspend fun loadLocked(file: ModelFile): LoadedModel {
         try {
             if (mutableState.value.loaded != null) backend.unload()
             mutableState.update { it.copy(loaded = null, loading = file.id) }
             val model = backend.load(file, config.preferred, config.cpuThreads)
             mutableState.update { it.copy(loaded = model, loading = null, lastError = null) }
+            return model
         } catch (e: CancellationException) {
+            // Ein abgebrochenes Laden kann ein halb geladenes Modell hinterlassen.
+            withContext(NonCancellable) { runCatching { backend.unload() } }
             mutableState.update { it.copy(loaded = null, loading = null) }
             throw e
         } catch (e: Throwable) {
             runCatching { backend.unload() }
             val error = EngineException.ModelLoadFailed(file.id, e)
-            mutableState.update { it.copy(loaded = null, loading = null, lastError = error.message) }
+            mutableState.update {
+                it.copy(loaded = null, loading = null, lastError = "${error.message}: ${e.message ?: e::class.simpleName}")
+            }
             throw error
         }
     }

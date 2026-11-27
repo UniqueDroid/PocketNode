@@ -17,8 +17,8 @@ fun ChatCompletionRequest.toGenerationRequest(): GenerationRequest {
     if (messages.isEmpty()) {
         throw ApiError.badRequest("messages_required", "'messages' muss mindestens eine Nachricht enthalten")
     }
-    if (n != null && n > 1) {
-        throw ApiError.badRequest("unsupported_parameter", "'n' größer als 1 wird nicht unterstützt")
+    if (n != null && n != 1) {
+        throw ApiError.badRequest("unsupported_parameter", "'n' muss 1 sein")
     }
     if (tools != null && tools !is JsonNull && !(tools is JsonArray && tools.isEmpty())) {
         throw ApiError.badRequest("unsupported_parameter", "'tools' wird nicht unterstützt")
@@ -36,8 +36,12 @@ fun ChatCompletionRequest.toGenerationRequest(): GenerationRequest {
     if (topK != null && topK < 1) {
         throw ApiError.badRequest("invalid_sampling", "'top_k' muss mindestens 1 sein")
     }
+    val mapped = messages.map { ChatMessage(it.role.toRole(), it.content.toText()) }
+    if (mapped.last().role != Role.USER) {
+        throw ApiError.badRequest("last_message_must_be_user", "Die letzte Nachricht muss die Rolle 'user' haben")
+    }
     return GenerationRequest(
-        messages = messages.map { ChatMessage(it.role.toRole(), it.content.toText()) },
+        messages = mapped,
         maxTokens = limit,
         sampling = Sampling(temperature, topP, topK),
         stop = stop.toStopList(),
@@ -45,7 +49,8 @@ fun ChatCompletionRequest.toGenerationRequest(): GenerationRequest {
 }
 
 private fun String.toRole(): Role = when (this) {
-    "system" -> Role.SYSTEM
+    // Neuere OpenAI-SDKs senden "developer" statt "system".
+    "system", "developer" -> Role.SYSTEM
     "user" -> Role.USER
     "assistant" -> Role.ASSISTANT
     else -> throw ApiError.badRequest("unsupported_role", "Die Rolle '$this' wird nicht unterstützt")

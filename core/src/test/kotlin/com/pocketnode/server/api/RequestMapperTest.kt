@@ -134,4 +134,28 @@ class RequestMapperTest {
     @Test
     fun `top_p out of range is rejected`() =
         assertBadRequest("""{"messages":[$user],"top_p":1.5}""", "invalid_sampling")
+
+    @Test
+    fun `n below one is rejected`() {
+        assertBadRequest("""{"messages":[$user],"n":0}""", "unsupported_parameter")
+        assertBadRequest("""{"messages":[$user],"n":-3}""", "unsupported_parameter")
+    }
+
+    @Test
+    fun `developer role maps to SYSTEM`() {
+        val result = map("""{"messages":[{"role":"developer","content":"Sei kurz."},$user]}""")
+        assertEquals(ChatMessage(Role.SYSTEM, "Sei kurz."), result.messages.first())
+    }
+
+    @Test
+    fun `last message from assistant is rejected`() = assertBadRequest(
+        """{"messages":[$user,{"role":"assistant","content":"Hallo"}]}""",
+        "last_message_must_be_user",
+    )
+
+    @Test
+    fun `only system message is rejected`() = assertBadRequest(
+        """{"messages":[{"role":"system","content":"Sei kurz."}]}""",
+        "last_message_must_be_user",
+    )
 }

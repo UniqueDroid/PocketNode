@@ -19,9 +19,10 @@ fun main() {
         listOf(ModelFile("fake-small", "fake-small.litertlm", 0), ModelFile("fake-large", "fake-large.litertlm", 0)),
     )
     val engine = EngineManager(FakeBackend(tokenDelayMs = 40), catalog)
-    val server = PocketNodeServer(ApiDeps(engine, catalog, apiKey = { apiKey }), port = port)
+    val host = System.getenv("POCKETNODE_HOST")?.takeIf { it.isNotBlank() } ?: "127.0.0.1"
+    val server = PocketNodeServer(ApiDeps(engine, catalog, apiKey = { apiKey }), host = host, port = port)
     server.start()
-    println("PocketNode (FakeBackend) started on http://localhost:${server.boundPort}")
+    println("PocketNode (FakeBackend) started on http://$host:${server.boundPort}")
     println("API-Key: $apiKey")
     Runtime.getRuntime().addShutdownHook(Thread { server.stop() })
     Thread.currentThread().join()

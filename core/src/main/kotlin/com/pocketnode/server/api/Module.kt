@@ -11,7 +11,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
-import io.ktor.server.application.log
+import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.http.HttpRequestLifecycle
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.plugins.statuspages.StatusPages
@@ -42,6 +42,7 @@ class ApiDeps(
     val version: String = "0.1.0",
     /** So lange darf ein einzelnes Stream-Event auf einen Client warten, der nicht liest. */
     val streamWriteTimeoutMs: Long = 30_000,
+    val log: ServerLog = ServerLog.Stderr,
 )
 
 /** Größte erlaubte Anfrage in Bytes. */
@@ -66,8 +67,8 @@ fun Application.pocketNodeModule(deps: ApiDeps) {
         exception<Throwable> { call, cause ->
             if (cause is CancellationException) throw cause
             val error = cause.toApiError()
-            if (error.status >= 500 && error.code == "internal_error") {
-                call.application.log.error("Unerwarteter Fehler bei ${call.request.local.uri}", cause)
+            if (error.code == "internal_error" || error.code == "model_load_failed") {
+                deps.log.log(ServerLog.Level.ERROR, "Fehler bei ${call.request.local.uri}: ${error.code}", cause)
             }
             call.respondError(error)
         }
@@ -102,13 +103,17 @@ fun Application.pocketNodeModule(deps: ApiDeps) {
             )
         }
         route("/v1") {
+            // Gilt für jede Route in diesem Block. Neue Routen unter /v1 sind damit automatisch geschützt.
+            install(
+                createRouteScopedPlugin("PocketNodeAuth") {
+                    onCall { call -> deps.requireAuth(call) }
+                },
+            )
             get("/models") {
-                deps.requireAuth(call)
                 val models = deps.catalog.list().map { ModelItem(id = it.id) }
                 call.respondJson(ApiJson.encodeToString(ModelList(data = models)))
             }
             post("/chat/completions") {
-                deps.requireAuth(call)
                 val request = ApiJson.decodeFromString<ChatCompletionRequest>(call.readLimitedBody())
                 val generation = request.toGenerationRequest()
                 val modelId = request.model?.takeIf { it.isNotBlank() }
@@ -119,17 +124,19 @@ fun Application.pocketNodeModule(deps: ApiDeps) {
                     call.respondChatStream(
                         events = events,
                         completionId = completionId,
-                        model = { deps.engine.state.value.loaded?.id ?: modelId ?: "unknown" },
                         includeUsage = request.streamOptions?.includeUsage == true,
                         writeTimeoutMs = deps.streamWriteTimeoutMs,
+                        log = deps.log,
                     )
                     return@post
                 }
 
                 val text = StringBuilder()
+                var model = modelId ?: "unknown"
                 var done: GenerationEvent.Done? = null
                 events.collect { event ->
                     when (event) {
+                        is GenerationEvent.Started -> model = event.model.id
                         is GenerationEvent.Token -> text.append(event.text)
                         is GenerationEvent.Done -> done = event
                     }
@@ -137,7 +144,7 @@ fun Application.pocketNodeModule(deps: ApiDeps) {
                 val response = ChatCompletionResponse(
                     id = completionId,
                     created = nowSeconds(),
-                    model = deps.engine.state.value.loaded?.id ?: modelId ?: "unknown",
+                    model = model,
                     choices = listOf(
                         Choice(
                             message = AssistantMessage(content = text.toString()),
