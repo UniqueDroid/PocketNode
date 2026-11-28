@@ -7,9 +7,16 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.options
 import io.ktor.client.request.post
+import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
+import io.ktor.server.application.ApplicationStarted
+import io.ktor.server.application.plugin
+import io.ktor.server.testing.testApplication
+import io.ktor.server.routing.RoutingRoot
+import io.ktor.server.routing.getAllRoutes
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -242,5 +249,59 @@ class ModuleTest {
             val response = client.get("/health") { header(HttpHeaders.Origin, "http://webui.local") }
             assertNull(response.headers[HttpHeaders.AccessControlAllowOrigin])
         }
+    }
+
+    @Test
+    fun `every v1 route rejects a missing key`() = testApplication {
+        val routes = mutableListOf<Pair<HttpMethod, String>>()
+        application {
+            pocketNodeModule(ApiFixture().deps)
+            monitor.subscribe(ApplicationStarted) {
+                for (route in plugin(RoutingRoot).getAllRoutes()) {
+                    val text = route.toString()
+                    val method = Regex("""\(method:(\w+)\)""").find(text)?.groupValues?.get(1) ?: continue
+                    routes += HttpMethod.parse(method) to text.substringBefore("/(method:")
+                }
+            }
+        }
+        startApplication()
+        val v1 = routes.filter { it.second.startsWith("/v1") }
+        assertTrue(v1.size >= 2, "Routen unter /v1 nicht gefunden: $routes")
+        for ((method, path) in v1) {
+            val response = client.request(path) { this.method = method }
+            assertEquals(401, response.status.value, "$method $path ist ohne Key erreichbar")
+        }
+    }
+
+    @Test
+    fun `model load failure hides the cause and logs it`() {
+        val fixture = ApiFixture(FakeBackend(failLoadFor = setOf("m1")))
+        fixture.run {
+            val response = client.post("/v1/chat/completions") { chat() }
+            val message = response.assertError(503, "server_error", "model_load_failed")
+            assertEquals("Das Modell 'm1' konnte nicht geladen werden", message)
+            val errors = fixture.logs.filter { it.level == ServerLog.Level.ERROR }
+            assertEquals(1, errors.size)
+            assertTrue("absichtlich" in errors.single().error?.cause?.message.orEmpty())
+        }
+    }
+
+    @Test
+    fun `unexpected errors are logged with their cause`() {
+        val fixture = ApiFixture(FakeBackend(failAfterTokens = 0))
+        fixture.run {
+            client.post("/v1/chat/completions") { chat() }.assertError(500, "server_error", "internal_error")
+            val errors = fixture.logs.filter { it.level == ServerLog.Level.ERROR }
+            assertEquals(1, errors.size)
+            assertTrue("absichtlich" in errors.single().error?.message.orEmpty())
+        }
+    }
+
+    @Test
+    fun `response model name comes from the Started event`() = ApiFixture().run {
+        val body = client.post("/v1/chat/completions") {
+            chat("""{"messages":[{"role":"user","content":"Hi"}]}""")
+        }.json()
+        assertEquals("m1", body.getValue("model").jsonPrimitive.content)
     }
 }

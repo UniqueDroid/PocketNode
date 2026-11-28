@@ -4,7 +4,6 @@ import com.pocketnode.server.engine.GenerationEvent
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.server.application.ApplicationCall
-import io.ktor.server.application.log
 import io.ktor.server.response.header
 import io.ktor.server.response.respondBytesWriter
 import io.ktor.utils.io.writeStringUtf8
@@ -28,14 +27,15 @@ private class GenerationFailed(cause: Throwable) : Exception(cause)
  * Stream geschrieben, der dann ohne `[DONE]` endet. Trennt der Client die Verbindung oder nimmt er
  * ein Event länger als [writeTimeoutMs] nicht ab, wird die Generierung abgebrochen.
  *
- * [model] wird erst nach dem ersten Event gelesen, weil das Modell davor noch geladen werden kann.
+ * Der Modellname kommt aus dem [GenerationEvent.Started]-Event. Die Antwort beginnt erst mit dem
+ * ersten Event danach, damit auch ein Fehler vor dem ersten Token noch einen Statuscode bekommt.
  */
 suspend fun ApplicationCall.respondChatStream(
     events: Flow<GenerationEvent>,
     completionId: String,
-    model: () -> String,
     includeUsage: Boolean,
     writeTimeoutMs: Long = 30_000,
+    log: ServerLog = ServerLog.Stderr,
 ): Unit = coroutineScope {
     val channel = Channel<GenerationEvent>(Channel.RENDEZVOUS)
     val producer = launch {
@@ -50,11 +50,17 @@ suspend fun ApplicationCall.respondChatStream(
         }
     }
 
-    val first = channel.receiveCatching()
-    first.exceptionOrNull()?.let { throw it }
+    var modelName = "unknown"
+    var first = channel.receiveCatching()
+    while (true) {
+        first.exceptionOrNull()?.let { throw it }
+        val event = first.getOrNull()
+        if (event !is GenerationEvent.Started) break
+        modelName = event.model.id
+        first = channel.receiveCatching()
+    }
 
     val created = nowSeconds()
-    val modelName = model()
     fun chunk(delta: Delta, finishReason: String? = null) = ApiJson.encodeToString(
         ChatCompletionChunk(
             id = completionId,
@@ -77,6 +83,7 @@ suspend fun ApplicationCall.respondChatStream(
                 var event = first.getOrNull()
                 while (event != null) {
                     when (event) {
+                        is GenerationEvent.Started -> Unit
                         is GenerationEvent.Token -> send(chunk(Delta(content = event.text)))
                         is GenerationEvent.Done -> {
                             send(chunk(Delta(), event.reason.wireName()))
@@ -106,12 +113,12 @@ suspend fun ApplicationCall.respondChatStream(
                 if (cause is CancellationException) throw cause
                 val error = cause.toApiError()
                 if (error.code == "internal_error") {
-                    application.log.error("Generierung im laufenden Stream gescheitert", cause)
+                    log.log(ServerLog.Level.ERROR, "Generierung im laufenden Stream gescheitert", cause)
                 }
                 send(ApiJson.encodeToString(error.toBody()))
             } catch (e: TimeoutCancellationException) {
                 // Der Client liest nicht mehr. Der Stream wird aufgegeben, damit die Engine frei wird.
-                application.log.warn("Stream aufgegeben: Client hat ${writeTimeoutMs} ms lang nichts abgenommen")
+                log.log(ServerLog.Level.WARN, "Stream aufgegeben: Client hat $writeTimeoutMs ms lang nichts abgenommen", null)
             } finally {
                 // Greift auch, wenn das Schreiben scheitert, weil der Client die Verbindung getrennt hat.
                 producer.cancel()

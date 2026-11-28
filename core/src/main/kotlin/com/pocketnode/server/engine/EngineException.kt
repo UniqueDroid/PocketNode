@@ -15,7 +15,7 @@ sealed class EngineException(message: String, cause: Throwable? = null) : Except
         EngineException("Es ist kein Modell geladen und keines installiert")
 
     class ModelLoadFailed(val modelId: String, cause: Throwable) :
-        EngineException("Das Modell '$modelId' konnte nicht geladen werden: ${cause.message}", cause)
+        EngineException("Das Modell '$modelId' konnte nicht geladen werden", cause)
 
     class Unavailable(val reason: String, val retryAfterSeconds: Int) :
         EngineException(reason)

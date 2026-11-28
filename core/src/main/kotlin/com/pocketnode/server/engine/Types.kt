@@ -26,6 +26,9 @@ enum class FinishReason { STOP, LENGTH }
 data class Usage(val promptTokens: Int, val completionTokens: Int)
 
 sealed interface GenerationEvent {
+    /** Erstes Event jeder Generierung über den EngineManager: das Modell ist geladen, gleich folgen Tokens. */
+    data class Started(val model: LoadedModel) : GenerationEvent
+
     data class Token(val text: String) : GenerationEvent
     data class Done(val reason: FinishReason, val usage: Usage?) : GenerationEvent
 }

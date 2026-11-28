@@ -1,6 +1,7 @@
 package com.pocketnode.server.engine
 
 import com.pocketnode.server.engine.GenerationEvent.Done
+import com.pocketnode.server.engine.GenerationEvent.Started
 import com.pocketnode.server.engine.GenerationEvent.Token
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -29,6 +30,7 @@ class EngineManagerTest {
     )
     private val request = GenerationRequest(listOf(ChatMessage(Role.USER, "hi")))
     private val fullText = "Hallo von PocketNode."
+    private val m1Loaded = LoadedModel("m1", Accelerator.GPU, 4096)
 
     private suspend fun Flow<GenerationEvent>.text(): String =
         toList().filterIsInstance<Token>().joinToString("") { it.text }
@@ -106,7 +108,7 @@ class EngineManagerTest {
         val log = mutableListOf<Int>()
         val jobs = (0..2).map { index -> launch { manager.generate(null, request).collect { log += index } } }
         jobs.forEach { it.join() }
-        assertEquals(List(5) { 0 } + List(5) { 1 } + List(5) { 2 }, log)
+        assertEquals(List(6) { 0 } + List(6) { 1 } + List(6) { 2 }, log)
     }
 
     @Test
@@ -158,7 +160,7 @@ class EngineManagerTest {
         val manager = EngineManager(backend, catalog)
         val seen = mutableListOf<GenerationEvent>()
         assertFailsWith<IllegalStateException> { manager.generate(null, request).collect { seen += it } }
-        assertEquals(listOf<GenerationEvent>(Token("Hallo")), seen)
+        assertEquals(listOf(Started(m1Loaded), Token("Hallo")), seen)
         assertFalse(manager.state.value.running)
         backend.failAfterTokens = null
         assertEquals(fullText, manager.generate(null, request).text())
@@ -194,7 +196,7 @@ class EngineManagerTest {
     fun `applies maxTokens and stop from request`() = runTest {
         val manager = EngineManager(FakeBackend(), catalog)
         val limited = manager.generate(null, request.copy(maxTokens = 2)).toList()
-        assertEquals(listOf(Token("Hallo"), Token(" von"), Done(FinishReason.LENGTH, null)), limited)
+        assertEquals(listOf(Started(m1Loaded), Token("Hallo"), Token(" von"), Done(FinishReason.LENGTH, null)), limited)
         val stopped = manager.generate(null, request.copy(stop = listOf("Pocket"))).text()
         assertEquals("Hallo von ", stopped)
     }
@@ -208,7 +210,9 @@ class EngineManagerTest {
         manager.generate("m1", request).text()
         assertTrue(states.any { it.loading == "m1" && it.loaded == null })
         assertTrue(states.any { it.running && it.loaded?.id == "m1" && it.loading == null })
-        assertEquals(EngineState(loaded = LoadedModel("m1", Accelerator.GPU, 4096)), manager.state.value)
+        assertEquals(m1Loaded, manager.state.value.loaded)
+        assertFalse(manager.state.value.running)
+        assertEquals(0, manager.state.value.waiting)
     }
 
     @Test
@@ -220,5 +224,66 @@ class EngineManagerTest {
         manager.unload()
         assertNull(manager.state.value.loaded)
         assertFailsWith<EngineException.ModelNotFound> { manager.load("fehlt") }
+    }
+
+    @Test
+    fun `first event is Started with the loaded model`() = runTest {
+        val events = EngineManager(FakeBackend(), catalog).generate("m2", request).toList()
+        assertEquals(Started(LoadedModel("m2", Accelerator.GPU, 4096)), events.first())
+        assertEquals(1, events.count { it is Started })
+    }
+
+    @Test
+    fun `cancelled load unloads the backend`() = runTest {
+        val backend = FakeBackend(loadDelayMs = 100)
+        val manager = EngineManager(backend, catalog)
+        val job = launch { manager.generate("m1", request).toList() }
+        runCurrent()
+        assertEquals("m1", manager.state.value.loading)
+        job.cancelAndJoin()
+        assertEquals(1, backend.unloadCalls)
+        assertNull(manager.state.value.loaded)
+        assertNull(manager.state.value.loading)
+        assertEquals(fullText, manager.generate("m1", request).text())
+    }
+
+    @Test
+    fun `lastTokensPerSecond is set after a generation`() = runTest {
+        val manager = EngineManager(
+            FakeBackend(tokenDelayMs = 10),
+            catalog,
+            nanoTime = { testScheduler.currentTime * 1_000_000 },
+        )
+        assertNull(manager.state.value.lastTokensPerSecond)
+        manager.generate(null, request).text()
+        // 4 Tokens im Abstand von 10 ms: 3 Tokens in 30 ms nach dem ersten.
+        assertEquals(100.0, manager.state.value.lastTokensPerSecond!!, 0.001)
+    }
+
+    @Test
+    fun `lastTokensPerSecond keeps its value after a one token generation`() = runTest {
+        val backend = FakeBackend(tokenDelayMs = 10)
+        val manager = EngineManager(backend, catalog, nanoTime = { testScheduler.currentTime * 1_000_000 })
+        manager.generate(null, request).text()
+        manager.generate(null, request.copy(maxTokens = 1)).text()
+        assertEquals(100.0, manager.state.value.lastTokensPerSecond!!, 0.001)
+    }
+
+    @Test
+    fun `request without model after a failed load uses the last good model`() = runTest {
+        // m1 steht im Katalog vorne und ist kaputt. Ohne Merker landete jede Anfrage ohne model wieder bei m1.
+        val backend = FakeBackend(failLoadFor = setOf("m1"))
+        val manager = EngineManager(backend, catalog)
+        manager.generate("m2", request).text()
+        assertFailsWith<EngineException.ModelLoadFailed> { manager.generate("m1", request).toList() }
+        assertEquals(fullText, manager.generate(null, request).text())
+        assertEquals(listOf("m2", "m1", "m2"), backend.loadCalls)
+    }
+
+    @Test
+    fun `backend that enforces max tokens keeps its usage`() = runTest {
+        val manager = EngineManager(FakeBackend(enforcesMaxTokens = true), catalog)
+        val events = manager.generate(null, request.copy(maxTokens = 2)).toList()
+        assertEquals(listOf(Started(m1Loaded), Token("Hallo"), Token(" von"), Done(FinishReason.LENGTH, Usage(1, 2))), events)
     }
 }

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">PocketNode</string>
+    <string name="notification_channel">PocketNode server</string>
+    <string name="notification_title">PocketNode AI server</string>
+    <string name="notification_stopped">Stopped</string>
+    <string name="notification_starting">Starting …</string>
+    <string name="notification_running">Running on %1$s · %2$s · %3$s</string>
+    <string name="notification_no_model">no model loaded</string>
+    <string name="notification_loading">loading %1$s</string>
+    <string name="notification_failed">Error: %1$s</string>
+    <string name="action_stop">Stop</string>
+    <string name="tab_overview">Overview</string>
+    <string name="tab_models">Models</string>
+    <string name="tab_settings">Settings</string>
+    <string name="status_running">Server running</string>
+    <string name="status_stopped">Server stopped</string>
+    <string name="status_starting">Server starting …</string>
+    <string name="status_failed">Error: %1$s</string>
+    <string name="action_start">Start server</string>
+    <string name="action_show_key">Show API key</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_close">Close</string>
+    <string name="overview_no_address">No Wi-Fi or Tailscale address found</string>
+    <string name="overview_model">Model: %1$s</string>
+    <string name="overview_no_model">Model: none loaded</string>
+    <string name="overview_loading">Loading %1$s …</string>
+    <string name="overview_speed" formatted="true">%1$.1f tokens/s · queue %2$d</string>
+    <string name="overview_queue">Queue %1$d</string>
+    <string name="overview_ram" formatted="true">RAM free: %1$.1f / %2$.1f GB</string>
+    <string name="overview_soc">Chip: %1$s</string>
+    <string name="overview_fallback">GPU not available, running on the CPU</string>
+    <string name="overview_last_error">Last error: %1$s</string>
+    <string name="overview_auth_off">Warning: authentication is off</string>
+    <string name="key_title">API key</string>
+    <string name="key_copied">API key copied</string>
+    <string name="models_empty">No models yet. Import a .litertlm file or copy it with:\nadb push model.litertlm %1$s/</string>
+    <string name="models_import">Import model</string>
+    <string name="models_importing">Importing … %1$d MB</string>
+    <string name="models_size">%1$d MB</string>
+    <string name="models_loaded">loaded</string>
+    <string name="models_loading">loading …</string>
+    <string name="models_load">Load</string>
+    <string name="models_delete">Delete</string>
+    <string name="models_delete_title">Delete %1$s?</string>
+    <string name="models_delete_text">The file is removed from the device.</string>
+    <string name="msg_imported">%1$s imported</string>
+    <string name="msg_name_taken">A model named %1$s already exists</string>
+    <string name="msg_import_failed">Import failed: %1$s</string>
+    <string name="msg_delete_loaded">%1$s is loaded and cannot be deleted</string>
+    <string name="msg_load_failed" formatted="true">%1$s could not be loaded: %2$s</string>
+    <string name="msg_server_stopped">Start the server first</string>
+    <string name="settings_port">Port</string>
+    <string name="settings_port_save">Save</string>
+    <string name="settings_port_invalid">Port must be between 1024 and 65535</string>
+    <string name="settings_accelerator">Accelerator</string>
+    <string name="settings_acc_auto">Automatic (GPU, CPU fallback)</string>
+    <string name="settings_acc_gpu">GPU</string>
+    <string name="settings_acc_cpu">CPU</string>
+    <string name="settings_auto_switch">Switch models on request</string>
+    <string name="settings_cors">Allow browser clients (CORS)</string>
+    <string name="settings_new_key">Generate new API key</string>
+    <string name="settings_new_key_text">Clients using the old key stop working.</string>
+    <string name="settings_auth_off">Turn off authentication</string>
+    <string name="settings_auth_off_text">Anyone on your network can then use the server. Only do this on a trusted network.</string>
+    <string name="settings_restart_hint">Changes restart a running server.</string>
+    <string name="confirm">Confirm</string>
+    <string name="cancel">Cancel</string>
+</resources>

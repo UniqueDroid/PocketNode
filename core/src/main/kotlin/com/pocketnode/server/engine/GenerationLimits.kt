@@ -25,6 +25,10 @@ fun Flow<GenerationEvent>.withLimits(maxTokens: Int?, stop: List<String>): Flow<
         emitAll(
             upstream.transformWhile { event ->
                 when (event) {
+                    is GenerationEvent.Started -> {
+                        emit(event)
+                        true
+                    }
                     is Done -> {
                         if (held.isNotEmpty()) emit(Token(held.toString()))
                         emit(event)
