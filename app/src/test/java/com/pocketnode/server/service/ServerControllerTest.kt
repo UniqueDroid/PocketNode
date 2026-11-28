@@ -15,6 +15,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import com.pocketnode.server.engine.InferenceBackend
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.io.TempDir
@@ -51,8 +55,8 @@ class ServerControllerTest {
 
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
-    private fun controller(): ServerController =
-        ServerController(settings, catalog, { backend }, { 2 }, ServerLog { _, _, _ -> }, scope, host = "127.0.0.1")
+    private fun controller(backendFactory: () -> InferenceBackend = { backend }): ServerController =
+        ServerController(settings, catalog, backendFactory, { 2 }, ServerLog { _, _, _ -> }, scope, host = "127.0.0.1")
             .also { controllers += it }
 
     private fun get(port: Int, path: String, key: String? = "pn-test"): HttpResponse<String> = http.send(
@@ -233,5 +237,39 @@ class ServerControllerTest {
         assertEquals(200, chat(port).statusCode())
         val running = controller.awaitStatus { (it as? ServerStatus.Running)?.engine?.loaded != null } as ServerStatus.Running
         assertEquals("m1", running.engine.loaded?.id)
+    }
+
+    @Test
+    fun `start completes even when the caller is cancelled`() = runBlocking {
+        val port = freePort()
+        settings.update { it.copy(port = port) }
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val controller = controller {
+            entered.countDown()
+            release.await()
+            backend
+        }
+        val caller = launch(Dispatchers.Default) { controller.start() }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        caller.cancel()
+        release.countDown()
+        caller.join()
+        controller.awaitStatus { it is ServerStatus.Running }
+        assertEquals(200, get(port, "/health").statusCode())
+        controller.stop()
+        ServerSocket(port).close()
+    }
+
+    @Test
+    fun `restartInBackground applies changes without a caller scope`() = runBlocking {
+        val first = freePort()
+        settings.update { it.copy(port = first) }
+        val controller = controller()
+        controller.start()
+        val second = freePort()
+        settings.update { it.copy(port = second) }
+        controller.restartInBackground().join()
+        assertEquals(second, (controller.status.value as ServerStatus.Running).port)
     }
 }

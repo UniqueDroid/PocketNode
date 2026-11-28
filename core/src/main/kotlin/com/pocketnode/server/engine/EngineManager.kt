@@ -59,6 +59,10 @@ class EngineManager(
     /** Kotlins Mutex ist fair: Wartende kommen in Ankunftsreihenfolge dran. */
     private val engineLock = Mutex()
 
+    /** Zuletzt erfolgreich geladenes Modell. Ziel für Anfragen ohne `model`, wenn gerade keines geladen ist. */
+    @Volatile
+    private var lastGoodModel: String? = null
+
     /** Laufende plus wartende Generierungen. */
     private val admitted = AtomicInteger(0)
 
@@ -85,7 +89,9 @@ class EngineManager(
                 emit(GenerationEvent.Started(model))
                 var tokens = 0
                 var firstTokenAt = 0L
-                backend.generate(request).withLimits(request.maxTokens, request.stop).collect { event ->
+                backend.generate(request)
+                    .withLimits(if (backend.enforcesMaxTokens) null else request.maxTokens, request.stop)
+                    .collect { event ->
                     when (event) {
                         is GenerationEvent.Token -> if (++tokens == 1) firstTokenAt = nanoTime()
                         is GenerationEvent.Done -> recordSpeed(tokens, nanoTime() - firstTokenAt)
@@ -122,6 +128,7 @@ class EngineManager(
         val loaded = mutableState.value.loaded
         val target = modelId
             ?: loaded?.id
+            ?: lastGoodModel?.takeIf { catalog.find(it) != null }
             ?: catalog.list().firstOrNull()?.id
             ?: throw EngineException.NoModelAvailable()
         if (loaded != null && loaded.id == target) return loaded
@@ -137,6 +144,7 @@ class EngineManager(
             mutableState.update { it.copy(loaded = null, loading = file.id) }
             val model = backend.load(file, config.preferred, config.cpuThreads)
             mutableState.update { it.copy(loaded = model, loading = null, lastError = null) }
+            lastGoodModel = model.id
             return model
         } catch (e: CancellationException) {
             // Ein abgebrochenes Laden kann ein halb geladenes Modell hinterlassen.

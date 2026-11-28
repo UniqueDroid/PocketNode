@@ -30,19 +30,17 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pocketnode.server.AppContainer
 import com.pocketnode.server.R
 import com.pocketnode.server.container
 import com.pocketnode.server.service.PocketNodeService
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = container
-        val factory = viewModelFactory(app)
+        val factory = viewModelFactory(app, applicationContext)
         setContent {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
                 PocketNodeUi(factory)
@@ -50,7 +48,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun viewModelFactory(app: AppContainer) = object : ViewModelProvider.Factory {
+    /** Die ViewModels überleben die Activity. Sie bekommen deshalb nur den Application-Context und den Controller-Scope. */
+    private fun viewModelFactory(app: AppContainer, appContext: android.content.Context) = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = when (modelClass) {
             OverviewViewModel::class.java -> OverviewViewModel(
@@ -59,9 +58,9 @@ class MainActivity : ComponentActivity() {
                 snapshot = { app.deviceInfo.snapshot() },
                 startServer = {
                     app.settingsStore.update { it.copy(serverWanted = true) }
-                    PocketNodeService.start(this@MainActivity)
+                    PocketNodeService.start(appContext)
                 },
-                stopServer = { PocketNodeService.stop(this@MainActivity) },
+                stopServer = { PocketNodeService.stop(appContext) },
             )
             ModelsViewModel::class.java -> ModelsViewModel(
                 catalog = app.catalog,
@@ -72,7 +71,7 @@ class MainActivity : ComponentActivity() {
             SettingsViewModel::class.java -> SettingsViewModel(
                 store = app.settingsStore,
                 status = app.controller.status,
-                restart = { lifecycleScope.launch { app.controller.restart() } },
+                restart = { app.controller.restartInBackground() },
             )
             else -> error("Unbekanntes ViewModel $modelClass")
         } as T

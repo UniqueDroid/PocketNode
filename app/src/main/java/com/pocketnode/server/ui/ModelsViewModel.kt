@@ -7,6 +7,7 @@ import com.pocketnode.server.engine.ModelCatalog
 import com.pocketnode.server.engine.ModelFile
 import com.pocketnode.server.models.ModelImporter
 import com.pocketnode.server.service.ServerStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,8 +62,11 @@ class ModelsViewModel(
         mutableState.update { it.copy(importProgressMb = 0, message = null) }
         val result = try {
             importer.import(displayName, open()) { copied -> mutableState.update { s -> s.copy(importProgressMb = copied / MB) } }
-        } catch (e: java.io.IOException) {
-            ModelImporter.Result.Failed(e.message ?: "Lesefehler")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // z. B. SecurityException, wenn der Zugriff auf die Datei entzogen wurde
+            ModelImporter.Result.Failed(e.message ?: e::class.simpleName.orEmpty())
         }
         val message = when (result) {
             is ModelImporter.Result.Imported -> ModelsMessage.Imported(result.id)

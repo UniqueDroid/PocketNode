@@ -268,4 +268,22 @@ class EngineManagerTest {
         manager.generate(null, request.copy(maxTokens = 1)).text()
         assertEquals(100.0, manager.state.value.lastTokensPerSecond!!, 0.001)
     }
+
+    @Test
+    fun `request without model after a failed load uses the last good model`() = runTest {
+        // m1 steht im Katalog vorne und ist kaputt. Ohne Merker landete jede Anfrage ohne model wieder bei m1.
+        val backend = FakeBackend(failLoadFor = setOf("m1"))
+        val manager = EngineManager(backend, catalog)
+        manager.generate("m2", request).text()
+        assertFailsWith<EngineException.ModelLoadFailed> { manager.generate("m1", request).toList() }
+        assertEquals(fullText, manager.generate(null, request).text())
+        assertEquals(listOf("m2", "m1", "m2"), backend.loadCalls)
+    }
+
+    @Test
+    fun `backend that enforces max tokens keeps its usage`() = runTest {
+        val manager = EngineManager(FakeBackend(enforcesMaxTokens = true), catalog)
+        val events = manager.generate(null, request.copy(maxTokens = 2)).toList()
+        assertEquals(listOf(Started(m1Loaded), Token("Hallo"), Token(" von"), Done(FinishReason.LENGTH, Usage(1, 2))), events)
+    }
 }

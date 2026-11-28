@@ -110,4 +110,12 @@ class ModelsViewModelTest {
         vm.load("eins")
         assertEquals(listOf("eins"), loaded)
     }
+
+    @Test
+    fun `failure to open the file becomes a message instead of a crash`() = runTest {
+        val vm = viewModel()
+        vm.import("x.litertlm") { throw SecurityException("Zugriff entzogen") }.join()
+        assertEquals(ModelsMessage.ImportFailed("Zugriff entzogen"), vm.state.value.message)
+        assertEquals(null, vm.state.value.importProgressMb)
+    }
 }

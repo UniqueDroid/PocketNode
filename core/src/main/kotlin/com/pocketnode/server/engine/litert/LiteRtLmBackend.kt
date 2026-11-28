@@ -30,6 +30,9 @@ class LiteRtLmBackend(
     override val name: String = "LiteRT-LM"
     override val supported: Set<Accelerator> = setOf(Accelerator.CPU, Accelerator.GPU)
 
+    /** maxTokens geht als maxOutputToken an die Engine. */
+    override val enforcesMaxTokens: Boolean = true
+
     @Volatile
     private var session: LiteRtSession? = null
 

@@ -10,11 +10,11 @@ import com.pocketnode.server.engine.EngineState
 import com.pocketnode.server.engine.InferenceBackend
 import com.pocketnode.server.engine.ModelCatalog
 import com.pocketnode.server.settings.AcceleratorPreference
-import com.pocketnode.server.settings.Settings
 import com.pocketnode.server.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,12 +45,30 @@ class ServerController(
     val status: StateFlow<ServerStatus> = mutableStatus.asStateFlow()
 
     private val lifecycle = Mutex()
+    @Volatile
     private var server: PocketNodeServer? = null
     private var engine: EngineManager? = null
     private var jobs: List<Job> = emptyList()
 
-    /** Liest die gespeicherten Einstellungen und startet. Ohne Wirkung, wenn der Server schon läuft. */
-    suspend fun start() = lifecycle.withLock {
+    /**
+     * Liest die gespeicherten Einstellungen und startet. Ohne Wirkung, wenn der Server schon läuft.
+     * Läuft im eigenen Scope des Controllers: Wird der Aufrufer abgebrochen, endet der Start trotzdem
+     * sauber, und kein Server bleibt halb gestartet zurück.
+     */
+    suspend fun start() = scope.async { startLocked() }.await()
+
+    /** Stoppt den Server und entlädt das Modell. Läuft wie [start] im Scope des Controllers. */
+    suspend fun stop() = scope.async { stopLocked() }.await()
+
+    suspend fun restart() = scope.async {
+        stopLocked()
+        startLocked()
+    }.await()
+
+    /** Für die Oberfläche: Neustart unabhängig vom Lebenszyklus der Activity oder des ViewModels. */
+    fun restartInBackground(): Job = scope.launch { restart() }
+
+    private suspend fun startLocked() = lifecycle.withLock {
         if (server != null) return@withLock
         mutableStatus.value = ServerStatus.Starting
         val settings = settingsStore.current()
@@ -64,13 +82,13 @@ class ServerController(
             ),
         )
         // Key und Auth-Schalter werden bei jeder Anfrage frisch gelesen: ein neuer Key gilt sofort.
-        var current: Settings = settings
-        val settingsJob = scope.launch { settingsStore.settings.collect { current = it } }
+        val current = java.util.concurrent.atomic.AtomicReference(settings)
+        val settingsJob = scope.launch { settingsStore.settings.collect { current.set(it) } }
         val newServer = PocketNodeServer(
             ApiDeps(
                 engine = newEngine,
                 catalog = catalog,
-                apiKey = { current.let { if (it.authDisabled) null else it.apiKey } },
+                apiKey = { current.get().let { if (it.authDisabled) null else it.apiKey } },
                 corsEnabled = { settings.corsEnabled },
                 log = log,
             ),
@@ -108,8 +126,7 @@ class ServerController(
         }
     }
 
-    /** Stoppt den Server und entlädt das Modell. */
-    suspend fun stop() = lifecycle.withLock {
+    private suspend fun stopLocked() = lifecycle.withLock {
         jobs.forEach { it.cancel() }
         jobs = emptyList()
         server?.let { withContext(Dispatchers.IO) { it.stop() } }
@@ -117,11 +134,6 @@ class ServerController(
         server = null
         engine = null
         mutableStatus.value = ServerStatus.Stopped
-    }
-
-    suspend fun restart() {
-        stop()
-        start()
     }
 
     /** Lädt ein Modell und merkt es sich für den nächsten Start. Nur bei laufendem Server. */

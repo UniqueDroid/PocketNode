@@ -8,6 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class LiteRtMappingTest {
     private fun user(text: String) = ChatMessage(Role.USER, text)
@@ -42,14 +43,14 @@ class LiteRtMappingTest {
 
     @Test
     fun `partial sampling is filled with defaults`() {
-        val plan = GenerationRequest(listOf(user("Hi")), sampling = Sampling(temperature = 0.2)).toConversationPlan()
-        assertEquals(SamplerValues(topK = 40, topP = 0.95, temperature = 0.2, seed = 0), plan.sampler)
+        val plan = GenerationRequest(listOf(user("Hi")), sampling = Sampling(temperature = 0.2)).toConversationPlan { 7 }
+        assertEquals(SamplerValues(topK = 40, topP = 0.95, temperature = 0.2, seed = 7), plan.sampler)
     }
 
     @Test
     fun `full sampling is passed through`() {
-        val plan = GenerationRequest(listOf(user("Hi")), sampling = Sampling(0.7, 0.8, 12)).toConversationPlan()
-        assertEquals(SamplerValues(topK = 12, topP = 0.8, temperature = 0.7, seed = 0), plan.sampler)
+        val plan = GenerationRequest(listOf(user("Hi")), sampling = Sampling(0.7, 0.8, 12)).toConversationPlan { 7 }
+        assertEquals(SamplerValues(topK = 12, topP = 0.8, temperature = 0.7, seed = 7), plan.sampler)
     }
 
     @Test
@@ -62,5 +63,12 @@ class LiteRtMappingTest {
         assertFailsWith<IllegalArgumentException> {
             GenerationRequest(listOf(user("Hi"), assistant("Hallo"))).toConversationPlan()
         }
+    }
+
+    @Test
+    fun `every request gets a fresh seed`() {
+        val request = GenerationRequest(listOf(user("Hi")), sampling = Sampling(temperature = 1.0))
+        val seeds = List(10) { request.toConversationPlan().sampler!!.seed }.toSet()
+        assertTrue(seeds.size > 1, "immer derselbe Seed: $seeds")
     }
 }

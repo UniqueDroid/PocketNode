@@ -3,6 +3,7 @@ package com.pocketnode.server.engine.litert
 import com.pocketnode.server.engine.ChatMessage
 import com.pocketnode.server.engine.GenerationRequest
 import com.pocketnode.server.engine.Role
+import kotlin.random.Random
 
 /** Eine Anfrage so zerlegt, wie LiteRT-LM sie braucht: Systemanweisung, Verlauf, neue Nutzernachricht. */
 data class ConversationPlan(
@@ -22,8 +23,11 @@ private const val DEFAULT_TOP_K = 40
 private const val DEFAULT_TOP_P = 0.95
 private const val DEFAULT_TEMPERATURE = 1.0
 
-/** Wirft [IllegalArgumentException], wenn die letzte Nachricht nicht vom Nutzer ist. */
-fun GenerationRequest.toConversationPlan(): ConversationPlan {
+/**
+ * Wirft [IllegalArgumentException], wenn die letzte Nachricht nicht vom Nutzer ist.
+ * Jede Anfrage bekommt einen neuen Seed, sonst liefert dieselbe Frage immer dieselbe Antwort.
+ */
+fun GenerationRequest.toConversationPlan(nextSeed: () -> Int = { Random.nextInt(1, Int.MAX_VALUE) }): ConversationPlan {
     val last = messages.lastOrNull()
     require(last != null && last.role == Role.USER) { "Die letzte Nachricht muss die Rolle 'user' haben" }
     val system = messages.filter { it.role == Role.SYSTEM }.map { it.text }
@@ -36,7 +40,7 @@ fun GenerationRequest.toConversationPlan(): ConversationPlan {
                 topK = topK ?: DEFAULT_TOP_K,
                 topP = topP ?: DEFAULT_TOP_P,
                 temperature = temperature ?: DEFAULT_TEMPERATURE,
-                seed = 0,
+                seed = nextSeed(),
             )
         }
     }

@@ -14,6 +14,7 @@ class FakeBackend(
     val failLoadFor: Set<String> = emptySet(),
     @Volatile var failAfterTokens: Int? = null,
     override val supported: Set<Accelerator> = setOf(Accelerator.CPU, Accelerator.GPU),
+    override val enforcesMaxTokens: Boolean = false,
 ) : InferenceBackend {
     override val name: String = "Fake"
 
@@ -41,14 +42,17 @@ class FakeBackend(
     override fun generate(request: GenerationRequest): Flow<GenerationEvent> = flow {
         active.incrementAndGet()
         try {
-            tokens.forEachIndexed { index, token ->
+            val limit = request.maxTokens?.takeIf { enforcesMaxTokens }
+            val output = if (limit != null) tokens.take(limit) else tokens
+            output.forEachIndexed { index, token ->
                 check(failAfterTokens != index) { "FakeBackend bricht nach $index Tokens absichtlich ab" }
                 if (tokenDelayMs > 0) delay(tokenDelayMs)
                 emit(GenerationEvent.Token(token))
             }
-            check(failAfterTokens != tokens.size) { "FakeBackend bricht nach ${tokens.size} Tokens absichtlich ab" }
+            check(failAfterTokens != output.size) { "FakeBackend bricht nach ${output.size} Tokens absichtlich ab" }
             val promptTokens = request.messages.sumOf { it.text.split(Regex("\\s+")).count(String::isNotBlank) }
-            emit(GenerationEvent.Done(FinishReason.STOP, Usage(promptTokens, tokens.size)))
+            val reason = if (limit != null && output.size < tokens.size) FinishReason.LENGTH else FinishReason.STOP
+            emit(GenerationEvent.Done(reason, Usage(promptTokens, output.size)))
         } finally {
             active.decrementAndGet()
         }
