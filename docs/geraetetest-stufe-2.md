@@ -5,7 +5,8 @@ Stufe 2 ist in der Entwicklungsumgebung nur auf dem Desktop (CPU) mit einem echt
 **Vorbereitung**
 
 - APK aus dem letzten CI-Lauf (Artefakt `pocketnode-debug-apk`) oder lokal mit `./gradlew :app:assembleDebug`
-- Ein Modell, das auf der GPU laufen soll, z. B. `gemma-4-E2B-it` aus der [LiteRT-Community auf Hugging Face](https://huggingface.co/litert-community) (Datei für die GPU, nicht die `_Google_Tensor_G5/G6`-Variante)
+- Hauptmodell: [`gemma-4-E2B-it.litertlm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm) (2,6 GB, frei ladbar). Diese Datei ist für CPU **und** GPU auf Android. Nicht die Varianten `-gpu` (nur für den Browser), `-web`, `_Google_Tensor_G5/G6` (NPU, andere Chips) oder `_NPU_Uncompiled` nehmen.
+- Für einen schnellen ersten Test: [`Qwen3-0.6B.litertlm`](https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm) (0,6 GB)
 - PC im selben WLAN, `adb` verbunden
 - Logcat mitschneiden: `adb logcat -s PocketNode litert`
 
